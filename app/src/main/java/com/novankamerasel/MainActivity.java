@@ -543,26 +543,66 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Se
 
         try {
             cam.takePicture(() -> triggerVibrate(60), null, (data, camera) -> {
-                String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
-                File dir = new File(Environment.getExternalStorageDirectory(), "Kamera selfie by novan");
-                if (!dir.exists()) dir.mkdirs();
-                File photoFile = new File(dir, "Foto_" + cameraFacing + "_" + timeStamp + ".jpg");
+                new Thread(() -> {
+                    String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
+                    String fileName = "Foto_" + cameraFacing + "_" + timeStamp + ".jpg";
+                    File photoFile = null;
+                    boolean success = false;
 
-                try (FileOutputStream fos = new FileOutputStream(photoFile)) {
-                    fos.write(data);
-                    fos.flush();
-                    scanMedia(photoFile);
+                    try {
+                        // Coba simpan ke folder Pictures/Kamera selfie by novan
+                        File picDir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "Kamera selfie by novan");
+                        if (!picDir.exists()) picDir.mkdirs();
+                        photoFile = new File(picDir, fileName);
+
+                        try (FileOutputStream fos = new FileOutputStream(photoFile)) {
+                            fos.write(data);
+                            fos.flush();
+                            success = true;
+                        } catch (Exception ex) {
+                            // Jika terhalang Scoped Storage di Android 10+, gunakan MediaStore
+                            ContentValues cv = new ContentValues();
+                            cv.put(MediaStore.Images.Media.DISPLAY_NAME, fileName);
+                            cv.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
+                            if (Build.VERSION.SDK_INT >= 29) {
+                                cv.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/Kamera selfie by novan");
+                            }
+                            Uri uri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, cv);
+                            if (uri != null) {
+                                try (java.io.OutputStream os = getContentResolver().openOutputStream(uri)) {
+                                    if (os != null) {
+                                        os.write(data);
+                                        os.flush();
+                                        success = true;
+                                    }
+                                }
+                            }
+                        }
+
+                        if (success && photoFile != null && photoFile.exists()) {
+                            scanMedia(photoFile);
+                        }
+                    } catch (Exception ignored) {}
+
+                    final boolean finalSuccess = success;
+                    final File finalFile = photoFile;
                     mainHandler.post(() -> {
-                        triggerVibrate(120);
-                        isCapturing = false;
-                        showMediaResultDialog(photoFile, false);
+                        if (finalSuccess) {
+                            triggerVibrate(120);
+                            isCapturing = false;
+                            if (finalFile != null && finalFile.exists()) {
+                                showMediaResultDialog(finalFile, false);
+                            } else {
+                                speakGuidance("Foto berhasil disimpan ke galeri.", true);
+                                resumePreview();
+                            }
+                        } else {
+                            isCapturing = false;
+                            speakGuidance("Gagal menyimpan foto.", true);
+                            resumePreview();
+                        }
                     });
-                } catch (Exception e) {
-                    mainHandler.post(() -> {
-                        isCapturing = false;
-                        speakGuidance("Gagal menyimpan foto.", true);
-                    });
-                }
+                }).start();
             });
         } catch (Exception e) {
             isCapturing = false;
@@ -588,7 +628,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Se
                 mediaRecorder.setVideoSize(selectedVideoWidth, selectedVideoHeight);
             }
 
-            File dir = new File(Environment.getExternalStorageDirectory(), "Kamera selfie by novan");
+            File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES), "Kamera selfie by novan");
             if (!dir.exists()) dir.mkdirs();
             String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
             lastVideoFile = new File(dir, "Video_" + cameraFacing + "_" + timeStamp + ".mp4");
